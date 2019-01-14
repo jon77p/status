@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>Status :: {{ getos() }}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body style="
+    margin:0px; 
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    ">
+        <div class="container" style="
+        display: flex;
+        flex-direction: column;
+        /* grid-gap: 10px; */
+        /* grid-template-rows: repeat(4, 1fr) 0.75fr; */
+        width: 100vw;
+        height: 100vh;
+        /* grid-template-rows: auto auto auto auto auto; */
+        ">
+            <div style="grid-row: 1;">
+                <h2>Status Page</h2>
+                <button onclick="json_button('refreshpip')">Refresh Pip</button>
+                <hr style="margin-bottom: 0px;">
+            </div>
+            <div style="grid-row: 2;">
+                <div class="buttons" style="display: inline">
+                    <button onclick="json_button('zt')">Query ZeroTier Devices</button>
+                    <button onclick="clearDiv.apply(['zt'])">Clear</button>
+                </div>
+                <div id="zt" style="display: flex; justify-content: space-between;"></div>
+                <hr style="margin-bottom: 0px;">
+            </div>
+            <div style="grid-row: 3;">
+                <div class="buttons" style="display: inline">
+                    <button onclick="json_button('webstat')">Get Website Statuses</button>
+                </div>
+                <div id="webstat" style=""></div>
+                <hr style="margin-bottom: 0px;">
+            </div>
+            <div id="spotify" style="grid-row: 4;">
+                <div id="spot-np" style="display: flex; justify-content: space-between;"></div>
+                <div class="buttons" style="display: inline-block">
+                    <div id="spot-control" style="display: inline-block">
+                        <button onclick="json_button('spot-control-previous')">Previous</button>
+                        <button onclick="json_button('spot-control-play')">Play</button>
+                        <button onclick="json_button('spot-control-pause')">Pause</button>
+                        <button onclick="json_button('spot-control-next')">Next</button>
+                        <button onclick="json_button('spot-track-info')">Get Track Info</button>
+                        <button onclick="json_button('spot-np')">Check Now Playing on Spotify</button>
+                        <input type="checkbox" name="spot-np-refresh" id="spot-np-refresh" value="refresh"> Automatic Refresh<br>
+                    </div>
+                    <input id="spot-search" type="search">
+                    <button onclick="clearDiv.apply(['spot-np', 'spot-res', 'spot-track-data'])">Clear</button>
+                </div>
+                <div id ="spot-res" style="display:grid;grid-template-columns:auto auto;"></div>
+                <div id ="spot-track-data"></div>
+                <hr style="margin-bottom: 0px;">
+            </div>
+            <div style="
+            grid-row: 5;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            /* grid-template-rows: 0.5fr 2fr; */
+            /* max-height: inherit; */
+            ">
+                <h3>Log:</h3>
+                <div id="log" style="
+                flex-grow: 2;
+                /* height: inherit; */
+                height: 25vh;
+                overflow-y: scroll;"></div>
+            </div>
+        </div>
+
+        <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+        <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+        <script src="/static/js/vibrant.min.js"></script>
+        <script>
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+        let refresh;
+        socket.on('enter', function(msg) {
+            $('#log').append('<p><em>Connected to ' + msg.data + ' at <b><a href="http://' + document.domain + '" target="__blank">' + document.domain + '</a></b></em></p>');
+            socket.emit('welcome', {data: navigator.userAgent});
+            return false;
+        });
+        socket.on('fromserver', function(msg) {
+            console.log(msg.data);
+            $('#log').append('<p>Received: ' + msg.data + '</p>');
+            $('#log').scrollTop($('#log')[0].scrollHeight);
+            return false;
+        });
+        socket.on('send', function(msg) {
+            console.log(msg["data"]);
+            if (msg["data"]["msg"] == "ztls") {
+                flattenData(msg["data"]["data"], '#zt');
+            } else if (msg["data"]["msg"] == "spot-np") {
+                flattenData(msg["data"]["data"], "#spot-np")
+            } else if (msg["data"]["msg"] == "spot-search") {
+                flattenData(msg["data"]["data"], "#spot-search")
+            } else if (msg["data"]["msg"] == "spot-track-data") {
+                flattenData(msg["data"]["data"], "#spot-track-data")
+            }
+            console.log('Done!');
+            return false;
+        })
+        socket.on('disconnectme', function(msg) {
+            $('#log').append('<p>' + msg.data + '</p>');
+            return false;
+        });
+
+        function json_button(msg) {
+            if (msg == 'zt') {
+                updateLog('Querying ZeroTier...');
+                socket.emit('jsonbutton', {data: "ztls"});
+                return false;
+            } else if (msg == 'refreshpip') {
+                updateLog('Refreshing pip installed packages...');
+                socket.emit('jsonbutton', {data: "refreshpip"});
+                return false;
+            } else if (msg == 'webstat') {
+                updateLog('Checking status of websites...');
+                socket.emit('jsonbutton', {data: "webstat", "sites": ["https://jonprentice.me", "https://thewhitehat.club", "https://secret.jonprentice.me", "http://jonprenticephotos.me", "https://blog.jonprentice.me", "http://dev.jonprentice.me"]});
+                return false;
+            } else if (msg == 'spot-np') {
+                updateLog('Checking Now Playing status for Spotify...');
+                socket.emit('jsonbutton', {data: "spot-np"});
+                return false;
+            } else if (msg == 'spot-control-pause') {
+                updateLog('Sending Pause command to Spotify...');
+                if ((typeof refresh != 'undefined') && ($('#spot-np-refresh').is(':checked'))) {
+                    clearTimeout(refresh);
+                }
+                socket.emit('jsonbutton', {data: "spot-control-pause"});
+                return false;
+            } else if (msg == 'spot-control-play') {
+                updateLog('Sending Play command to Spotify...');
+                socket.emit('jsonbutton', {data: "spot-control-play"});
+                socket.emit('jsonbutton', {data: "spot-np"});
+                return false;
+            } else if (msg == 'spot-control-previous') {
+                updateLog('Sending Previous command to Spotify...');
+                socket.emit('jsonbutton', {data: "spot-control-previous"});
+                if ((typeof refresh != 'undefined') && ($('#spot-np-refresh').is(':checked'))) {
+                    clearTimeout(refresh);
+                    socket.emit('jsonbutton', {data: "spot-np"});
+                }
+                return false;
+            } else if (msg == 'spot-control-next') {
+                updateLog('Sending Next command to Spotify...');
+                socket.emit('jsonbutton', {data: "spot-control-next"});
+                if ((typeof refresh != 'undefined') && ($('#spot-np-refresh').is(':checked'))) {
+                    clearTimeout(refresh);
+                    socket.emit('jsonbutton', {data: "spot-np"});
+                }
+                return false;
+            } else if (msg == 'spot-track-info') {
+                updateLog('Getting track info...');
+                socket.emit('jsonbutton', {data: "spot-track-info"});
+                return false;
+            }
+        }
+
+        function updateLog(msg) {
+            $('#log').append('<p>Sent: <em>' + msg + '</em></p>');
+            $('#log').scrollTop($('#log')[0].scrollHeight);
+        }
+
+        function flattenData(data, id) {
+            if (id == "#zt") {
+                if ($(id + " > div").length >= 1) {
+                    $(id).empty();
+                    console.log('Emptied ' + id + ' of contents!');
+                }
+                for (res in data) {
+                    $(id).append("<div style='flex: 1; width: 90%;' id='" + res + "'></div>");
+                    $("#" + res).append("<h4 style='text-align: center;'>" + res + "</h4>");
+                    for (res1 in data[res]) {
+                        contents = data[res][res1];
+                        $("#" + res).append("<p>" + contents["name"] + " (<b><a href='http://" + contents["ip"]+ "' target='__blank'>" + contents["ip"] + "</a></b>)" + " - <em>" + contents["status"] + "</em></p>");
+                    }
+                }
+            } else if (id == "#spot-np") {
+                console.log(data);
+                if ($(id).length >= 1) {
+                    $(id).empty();
+                    if ($("title").text().slice(-3,-2) == " ") {
+                        $("title").text($("title").text().slice(0,-2));
+                    }
+                    console.log('Emptied ' + id + ' of contents added to title!');
+                }
+                var track = data["track"];
+                var track_uri = data["uri"];
+                var artist = data["artist"];
+                var artwork = data["img"];
+                var colors = data["colors"];
+                
+                $(id).append("<p><b>Now Playing:</b></p>");
+                $(id).append("<div style='text-align: center'><a href='" + track_uri + "' target='__blank'><h2>" + track + "</h2><h3>" + artist+ "</h3></a></div>");
+
+                if (data["source"]) {
+                    if (data["source"]["type"] == "playlist") {
+                        var playlist_uri = data["source"]["uri"];
+                        var playlist = data["source"]["name"];
+                        var playlist_creator = data["source"]["creator"]
+                        $(id + "> div").append("<a href='" + playlist_uri + "'><em>Playing from " + playlist_creator + "'s Playlist: " + playlist + "</em></a>");
+                    }
+                }
+                $(id).append("<img id='spot-np-img' src='" + artwork + "' style='height: 25vh;border-radius: 50%;'>");
+
+                console.log(artwork);
+
+                if ($('#spot-np-refresh').is(':checked')) {
+                    console.log("Remaining Duration: " + data["time"]);
+                    if (!refresh) {
+                        console.log("Creating Timeout...");
+                        var time = data["time"];
+                        console.log(time);
+                        refresh = setTimeout((() => socket.emit('jsonbutton', {data: "spot-np"}) && socket.emit('jsonbutton', {data: "spot-track-info"})), time + 1000);
+                    } else {
+                        console.log("Timeout already created... REFRESHING")
+                        clearTimeout(refresh);
+                        var time = data["time"];
+                        console.log(time);
+                        refresh = setTimeout((() => socket.emit('jsonbutton', {data: "spot-np"}) && socket.emit('jsonbutton', {data: "spot-track-info"})), time + 1000);
+                    }
+                } else if (!($('#spot-np-refresh').is(':checked')) && (typeof refresh != 'undefined')) {
+                    console.log("Clearing Timeout...")
+                    clearTimeout(refresh);
+                }
+                $("title").text($("title").text() + " 🎧");
+                console.log($("title").text());
+            } else if (id == "#spot-search") {
+                clearDiv.apply(['spot-res']);
+                console.log(data["tracks"]);
+                data["tracks"]["items"].forEach(element => {
+                    var track = element["name"];
+                    var track_uri = element["uri"];
+                    var artist = element["artists"][0]["name"];
+                    var artist_uri = element["artists"][0]["uri"];
+                    var album = element["album"]["name"];
+                    var album_uri = element["album"]["uri"];
+                    var artwork = element["album"]["images"][0]["url"];
+                    $('#spot-res').append("<div style='margin-top: 5px;width: 100%;display: flex;flex-direction: row;justify-content:left;align-items:center;'>" + "<img src='" + artwork + "' style='height: 60px;border-radius: 50%;'>" + "<p style='margin-left: 5px'>" + "<a href='" + track_uri + "'>" + track + "</a>" + " by " + "<a href='" + artist_uri + "'>" + artist + "</a>" + " (" + "<a href='" + album_uri + "'>" + album + "</a>" + ")" + "</p>" + "</div>");
+                });
+            } else if (id == "#spot-track-data") {
+                clearDiv.apply(['spot-track-data']);
+                console.log(data);
+                var tempo = data["audio-features"]["tempo"];
+                var timesignature = data["audio-features"]["time_signature"];
+                $('#spot-track-data').append("<p>Tempo: " + tempo + " bpm</p>");
+                $('#spot-track-data').append("<p>Time Signature: " + timesignature + "</p>");
+            }
+        }
+
+        function clearDiv() {
+            for (d in this) {
+                $('#' + this[d]).empty();
+            }
+        }
+        
+        var thread = null;
+        function searchSpotify(t) {
+            if (t.replace(/ /g,'') != "") {
+                updateLog("Searching Spotify...");
+                socket.emit('jsonbutton', {data: "spot-search", query: t});
+            } else {
+                $('#spot-res').empty();
+            }
+        }
+        $('#spot-search').keyup(function() {
+            clearTimeout(thread);
+            var $this = $(this); thread = setTimeout(function(){searchSpotify($this.val())}, 350);
+        });
+        </script>
+    </body>
+</html>

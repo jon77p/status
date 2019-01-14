@@ -1,0 +1,4 @@
+OS = ''
+SECRET = ''
+USERNAME = ''
+PASSWORD = ''

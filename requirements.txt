@@ -1,0 +1,9 @@
+requests
+flask
+eventlet
+gunicorn
+flask-socketio
+Flask-BasicAuth
+pyspeedtest
+pyfiglet
+flask_restful

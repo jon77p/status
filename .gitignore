@@ -1,0 +1,8 @@
+.AppleDB
+bin/
+include/
+lib/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/

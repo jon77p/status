@@ -1,0 +1,19 @@
+[Unit]
+Description=A service to serve status page
+After=network.target
+
+[Service]
+User=jon77p
+Group=www-data
+WorkingDirectory=/mnt/status
+Environment="PATH=/mnt/status/bin"
+
+Environment="SPOTAPPTOKEN=REPLACE VALUE HERE"
+Environment="SPOTREFRESHTOKEN=REPLACE VALUE HERE"
+
+Environment="ZT_API=REPLACE VALUE HERE"
+
+ExecStart=/mnt/status/bin/gunicorn --worker-class eventlet -w 1 -b 127.0.0.1:5000 --reload app:app
+
+[Install]
+WantedBy=multi-user.target
