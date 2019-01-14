@@ -212,7 +212,7 @@ def speedtest():
 @app.context_processor
 def utility_processor():
     def getos():
-        return path.expandvars('${OS}')
+        return config.OS
     return dict(getos=getos)
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5001)
