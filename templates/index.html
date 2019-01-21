@@ -51,7 +51,7 @@
                         <button onclick="json_button('spot-control-next')">Next</button>
                         <button onclick="json_button('spot-track-info')">Get Track Info</button>
                         <button onclick="json_button('spot-np')">Check Now Playing on Spotify</button>
-                        <input type="checkbox" name="spot-np-refresh" id="spot-np-refresh" value="refresh"> Automatic Refresh<br>
+                        <input style="display: none;" type="checkbox" name="spot-np-refresh" id="spot-np-refresh" value="refresh" checked><br>
                     </div>
                     <input id="spot-search" type="search">
                     <button onclick="clearDiv.apply(['spot-np', 'spot-res', 'spot-track-data'])">Clear</button>
