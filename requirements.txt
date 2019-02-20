@@ -7,3 +7,4 @@ Flask-BasicAuth
 pyspeedtest
 pyfiglet
 flask_restful
+duo_web

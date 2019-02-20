@@ -1,10 +1,11 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, Response, request
 from flask_socketio import SocketIO, emit
 from zerotierls import ztls
 from flask_basicauth import BasicAuth
 from os import path, environ
 import pyspeedtest
 from datetime import datetime
+import pytz
 import subprocess
 import pyfiglet
 import requests
@@ -21,10 +22,14 @@ app.config['BASIC_AUTH_REALM'] = 'status page'
 socketio = SocketIO(app)
 basic_auth = BasicAuth(app)
 
+############# HTML #############
+
 @app.route('/')
 @basic_auth.required
 def index():
     return render_template('index.html')
+
+############# SocketIO #############
 
 @socketio.on('connect')
 def connect():
@@ -38,7 +43,8 @@ def welcome(message):
     emit('fromserver', {'data': 'Current Browser: ' + message['data'].split(' ')[-1]})
     # test = speedtest()
     # emit('fromserver', {'data': 'Current Speed: ' + str(test[0]) + 'UP | ' + str(test[1]) + 'DOWN'})
-    currenttime = datetime.now()
+    utctime = pytz.utc.localize(datetime.utcnow())
+    currenttime = utctime.astimezone(pytz.timezone("America/Los_Angeles"))
     emit('fromserver', {'data': 'Today is: ' + currenttime.strftime("%m/%d/%Y")})
     emit('fromserver', {'data': 'The current system time is: ' + currenttime.strftime("%I:%M %p")})
 
@@ -103,6 +109,15 @@ def jsonbutton(message):
     else:
         emit('fromserver', {'data': "Uncaught json message received! Message was: " + message["data"]})
     
+############# API #############
+
+@app.route('/api/nowplaying')
+def api_getnp() -> Response:
+    nowplaying = getspotify_np()
+    return jsonify(nowplaying)
+
+############# utils #############
+
 def tokenreauth():
     app_token = environ["SPOTAPPTOKEN"]
     refresh_token = environ["SPOTREFRESHTOKEN"]
@@ -134,10 +149,10 @@ def getspotify_np():
                 # if req2.status_code == 200:
                 req2 = req2.json()
                 colors = getartworkcolors(req["item"]["album"]["images"][0]["url"])
-                return {"context": {"data": req2, "np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "source": {"type": req2["type"], "name": req2["name"], "uri": req2["uri"], "creator": req2["owner"]["display_name"]}, "colors": colors}
+                return {"context": {"data": req2, "np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "source": {"type": req2["type"], "name": req2["name"], "uri": req2["uri"], "creator": req2["owner"]["display_name"]}, "colors": colors, "full": req}
             else:
                 colors = getartworkcolors(req["item"]["album"]["images"][0]["url"])
-                return {"context": {"np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "colors": colors}
+                return {"context": {"np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "colors": colors, "full": req}
         else:
             tokenreauth()
             return getspotify_np()
