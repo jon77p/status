@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <title>Status :: {{ getos() }}</title>
+        <title>Status :: {{ OS }}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
     </head>
     <body style="
@@ -23,6 +23,7 @@
         ">
             <div style="grid-row: 1;">
                 <h2>Status Page</h2>
+                <a href="{{ url_for('logout') }}" class="logout">Log Out</a>
                 <button onclick="json_button('refreshpip')">Refresh Pip</button>
                 <hr style="margin-bottom: 0px;">
             </div>
@@ -104,6 +105,9 @@
                 flattenData(msg["data"]["data"], "#spot-search")
             } else if (msg["data"]["msg"] == "spot-track-data") {
                 flattenData(msg["data"]["data"], "#spot-track-data")
+            } else if (msg["data"]["msg"] == "spot-setprog") {
+                $('#log').append('<p>' + 'Setting timer to be at progress ' + msg["data"]["data"] + '</p>');
+                setTimeout(refresh, msg["data"]["data"]);
             }
             console.log('Done!');
             return false;

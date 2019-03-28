@@ -1,8 +1,7 @@
-from flask import Flask, render_template, jsonify, Response, request
+from flask import Flask, render_template, jsonify, Response, request, redirect, url_for, flash, session
 from flask_socketio import SocketIO, emit
 from zerotierls import ztls
-from flask_basicauth import BasicAuth
-from os import path, environ
+from os import path, environ, wait
 import pyspeedtest
 from datetime import datetime
 import pytz
@@ -11,23 +10,60 @@ import pyfiglet
 import requests
 import time
 import config
+from multiprocessing import Process
+import duo_web as duo
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET
+app.config['DUO'] = config.DUO
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['BASIC_AUTH_USERNAME'] = config.USERNAME
-app.config['BASIC_AUTH_PASSWORD'] = config.PASSWORD
-app.config['BASIC_AUTH_REALM'] = 'status page'
 
 socketio = SocketIO(app)
-basic_auth = BasicAuth(app)
+app.song = None
 
 ############# HTML #############
 
 @app.route('/')
-@basic_auth.required
 def index():
-    return render_template('index.html')
+    if checkLogin():
+        return render_template('index.html', OS=config.OS)
+    else:
+        return redirect(url_for('login'))
+
+@app.route('/mfa', methods=['GET', 'POST'])
+def mfa():
+    result = {'ikey': app.config['DUO']['ikey'], 'akey': app.config['DUO']['akey'], 'skey': app.config['DUO']['skey'], 'host': app.config['DUO']['host']}
+    sig_request = duo.sign_request(result['ikey'], result['skey'], result['akey'], session['user'])
+    if request.method == 'GET':
+        return render_template('duoframe.html', duohost=result['host'], sig_request=sig_request)
+    if request.method == 'POST':
+        user = duo.verify_response(result['ikey'], result['skey'], result['akey'], request.args.get('sig_response'))
+        if user == session['user']:
+            return render_template(url_for('mfa'), user=user)
+
+@app.route('/success', methods=['POST'])
+def success():
+    session['duo_logged_in'] = True
+    return redirect('/')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        if request.form['username'] == "":
+            error = 'Type something in the username field.'
+        else:
+            session['logged_in'] = True
+            session['user'] = request.form['username']
+            flash('You are logged in')
+            return redirect(url_for('mfa'))
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    flash('You were logged out')
+    return redirect(url_for('login'))
 
 ############# SocketIO #############
 
@@ -38,7 +74,7 @@ def connect():
 
 @socketio.on('welcome')
 def welcome(message):
-    emit('fromserver', {'data': 'Welcome ' + app.config['BASIC_AUTH_USERNAME'] + '!'})
+    emit('fromserver', {'data': 'Welcome ' + session['user'] + '!' if session.get('user') is not None else 'Welcome!'})
     emit('fromserver', {'data': 'Detected OS: ' + ' '.join(message['data'].split(' ')[2:7])[:-1]})
     emit('fromserver', {'data': 'Current Browser: ' + message['data'].split(' ')[-1]})
     # test = speedtest()
@@ -84,17 +120,17 @@ def jsonbutton(message):
         if message["data"].split("-")[1] == "np":
             np_data = getspotify_np()
             emit('send', {'data': {'msg': 'spot-np', 'data': np_data}})
-            emit('fromserver', {'data': 'Completed!'})
+            # emit('fromserver', {'data': 'Completed!'})
             emit('fromserver', {'data': '<em>Now Playing: <a href="' + np_data["uri"] + '"><b>' + np_data["track"] + '</b> by <b>' + np_data["artist"] + '</b></a></em>'})
         elif message["data"].split("-")[1] == "control":
             command = message["data"].split("-")[2]
             emit('fromserver', {'data': "Executing control command '" + command + "'..."})
             spotify_control(command)
-            emit('fromserver', {'data': "Completed!"})
+            # emit('fromserver', {'data': "Completed!"})
             time.sleep(1)
             if command == "next" or command == "previous":
                 emit('send', {'data': {'msg': 'spot-np', 'data': getspotify_np()}})
-                emit('fromserver', {'data': 'Completed!'})
+                # emit('fromserver', {'data': 'Completed!'})
         elif message["data"].split("-")[1] == "search":
             query = message["query"]
             emit('fromserver', {'data': 'Received Query: ' + query})
@@ -104,7 +140,7 @@ def jsonbutton(message):
             nowplaying = getspotify_np()
             trackid = nowplaying["uri"].split(":")[2]
             trackdata = getspotify_trackdata(trackid)
-            emit('fromserver', {'data': 'Completed!'})
+            # emit('fromserver', {'data': 'Completed!'})
             emit('send', {'data': {'msg': 'spot-track-data', 'data': trackdata}})
     else:
         emit('fromserver', {'data': "Uncaught json message received! Message was: " + message["data"]})
@@ -113,10 +149,35 @@ def jsonbutton(message):
 
 @app.route('/api/nowplaying')
 def api_getnp() -> Response:
-    nowplaying = getspotify_np()
-    return jsonify(nowplaying)
+    if checkLogin():
+        nowplaying = getspotify_np()
+        return jsonify(nowplaying)
+    else:
+        return jsonify(badLogin())
+
+@app.route('/api/check')
+def api_checkplaying() -> Response:
+    if checkLogin():
+        nowplaying = getspotify_np()
+        return jsonify({"prev": app.song, "np": nowplaying["uri"].split(":")[2]})
+    else:
+        return jsonify(badLogin())
+
+@app.route('/api/setprog', methods=['POST'])
+def api_setprog() -> Response:
+    if checkLogin():
+        res = request.json
+        emit('send', {'data': {'msg': 'spot-setprog', 'data': res['progress']}})
+    else:
+        return jsonify(badLogin())
 
 ############# utils #############
+
+def checkLogin():
+    return session.get('logged_in') and session.get('duo_logged_in')
+
+def badLogin():
+    return {'error': 'not logged in!'}
 
 def tokenreauth():
     app_token = environ["SPOTAPPTOKEN"]
@@ -144,13 +205,16 @@ def getspotify_np():
     try:
         if req.status_code == 200:
             req = req.json()
+            print(req)
             if req["context"]["type"] == "playlist":
                 req2 = requests.get(req["context"]["href"], headers=headers)
                 # if req2.status_code == 200:
                 req2 = req2.json()
                 colors = getartworkcolors(req["item"]["album"]["images"][0]["url"])
+                song = req["item"]["uri"]
                 return {"context": {"data": req2, "np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "source": {"type": req2["type"], "name": req2["name"], "uri": req2["uri"], "creator": req2["owner"]["display_name"]}, "colors": colors, "full": req}
             else:
+                song = req["item"]["uri"]
                 colors = getartworkcolors(req["item"]["album"]["images"][0]["url"])
                 return {"context": {"np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "colors": colors, "full": req}
         else:
@@ -165,8 +229,10 @@ def getspotify_np():
         req = requests.get(url, headers=headers).json()
         try:
             colors = getartworkcolors(req["item"]["album"]["images"][0]["url"])
+            song = req["item"]["uri"]
             return {"context": {"np_type": req["currently_playing_type"], "href": req["context"]["href"], "type": req["context"]["type"]}, "track": req["item"]["name"], "artist": req["item"]["artists"][0]["name"], "uri": req["item"]["uri"], "img": req["item"]["album"]["images"][0]["url"], "time": req["item"]["duration_ms"] - req["progress_ms"], "colors": colors}
         except:
+            song = None
             return {"track": "N/A", "artist": "N/A", "uri": "spotify:track:n/a", "img": "null", "time": "-1", "colors": "null"}
 
 def getartworkcolors(image):
@@ -219,15 +285,51 @@ def spotify_control(command):
         req = requests.post(url, headers=headers)
         return req
 
+@app.route('/api/startpoll')
+def api_startpoll():
+    if checkLogin():
+        global p
+        p = Process(target=spotifyPoll, args=())
+        p.start()
+        return jsonify({'message': 'started polling'})
+    else:
+        return jsonify(badLogin())
+
+@app.route('/api/stoppoll')
+def api_stoppoll():
+    if checkLogin():
+        try:
+            p.kill()
+        except NameError:
+            return jsonify({'error': 'polling not started!'})
+        print("Stopped polling spotify!")
+        return jsonify({'message': 'stopped polling'})
+    else:
+        return jsonify(badLogin())
+
+def spotifyPoll():
+    while True:
+        print("Polling spotify!")
+        url = "https://api.spotify.com/v1/me/player/currently-playing"
+        headers = {'Authorization': 'Bearer ' + tokenreader()}
+        try:
+            req = requests.get(url, headers=headers)
+        except:
+            return
+        res = req.json()
+
+        progress = res['progress_ms']
+        duration = res["item"]["duration_ms"]
+        print(str(progress) + "/" + str(duration))
+        res = requests.post(request.base_url + "/api/setprog", json={'progress': progress})
+        if res.ok:
+            time.sleep(1) 
+    return
+
 def speedtest():
     return (1, 1)
     # st = pyspeedtest.SpeedTest()
     # return (st.download(), st.upload())
 
-@app.context_processor
-def utility_processor():
-    def getos():
-        return config.OS
-    return dict(getos=getos)
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5001)
