@@ -1,8 +1,10 @@
 #!/bin/bash
 
-sudo ln -s etc/systemd/system/status.service /etc/systemd/system/status.service
+CURR="$(pwd)"
 
-sudo ln -s etc/nginx/sites-available/status /etc/nginx/sites-available/status
+sudo ln -s $CURR/etc/systemd/system/status.service /etc/systemd/system/status.service
+
+sudo ln -s $CURR/etc/nginx/sites-available/status /etc/nginx/sites-available/status
 sudo ln -s /etc/nginx/sites-available/status /etc/nginx/sites-enabled/status
 
 sudo systemctl daemon-reload
